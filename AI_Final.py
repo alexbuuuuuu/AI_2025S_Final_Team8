@@ -10,7 +10,7 @@ import tiktoken
 import glob
 import re
 
-#Code by D13944024, 蔡宜淀, Team 8 - Enhanced JSON RAG Version with Strict Compliance
+#Code by D13944024, 蔡宜淀, Team 8 
 
 # 配置 OpenAI API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")

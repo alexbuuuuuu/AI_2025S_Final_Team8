@@ -3,4 +3,4 @@ NTU 2025 Spring AI Final Project
 
 >First Use ： python AI_Final_Team8.py --rebuild
 
->Then ： python AI_Final_Team8.p
+>Then ： python AI_Final_Team8.py

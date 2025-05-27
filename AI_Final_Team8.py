@@ -722,8 +722,8 @@ def strict_determine_legality(ad_text: str, vs: EnhancedVectorStore) -> dict:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.05,
-            max_tokens=800,
-            top_p=0.9
+            max_tokens=1600,
+            top_p=0.5
         )
         
         response_text = resp.choices[0].message.content
@@ -947,7 +947,7 @@ def main():
     
     # 互動模式
     else:
-        print("\n=== 互動式廣告合規檢測（增強版）===")
+        print("\n=== AI_Final_Team8_MOHW RAG system ===")
         print("輸入廣告文本進行檢測，輸入 'quit' 結束")
         
         while True:

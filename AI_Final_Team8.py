@@ -716,7 +716,7 @@ def strict_determine_legality(ad_text: str, vs: EnhancedVectorStore) -> dict:
     # 調用 GPT 模型
     try:
         resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

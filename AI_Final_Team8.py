@@ -721,7 +721,7 @@ def strict_determine_legality(ad_text: str, vs: EnhancedVectorStore) -> dict:
   # 8. 調用 GPT 模型
   try:
       resp = openai.ChatCompletion.create(
-          model="gpt-4o-mini",
+          model="gpt-4.1-mini",
           messages=[
               {"role": "system", "content": system_prompt},
               {"role": "user", "content": user_prompt}
@@ -745,7 +745,7 @@ def strict_determine_legality(ad_text: str, vs: EnhancedVectorStore) -> dict:
           'vector_store_ids': vector_store_ids,
           'source_files': list(set([c.get('source_file', c['id']) for c in contexts])),
           'compliance_analysis': compliance_check,
-          'model_used': 'gpt-4.1-nano'
+          'model_used': 'gpt-4.1-mini'
       }
   except Exception as e:
       return {
@@ -754,7 +754,7 @@ def strict_determine_legality(ad_text: str, vs: EnhancedVectorStore) -> dict:
           'error': str(e),
           'vector_store_ids': vector_store_ids,
           'compliance_analysis': compliance_check,
-          'model_used': 'gpt-4.1-nano'
+          'model_used': 'gpt-4.1-mini'
       }
 
 def validate_and_fix_response(response_text: str, compliance_check: dict, ad_text: str) -> str:

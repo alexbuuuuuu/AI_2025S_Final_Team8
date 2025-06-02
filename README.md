@@ -8,6 +8,7 @@ NTU 2025 Spring AI Final Project
 $ python AI_Final_team8.py --json_folder regulations_json --rebuild
 # Then,
 $ python AI_Final_team8.py --json_folder regulations_json
+
 # For Kaggle Query,
 $ python AI_Final_Team8.py --input_query_file final_project_query.csv
 ```
@@ -18,4 +19,6 @@ $ python AI_Final_Team8.py --input_query_file final_project_query.csv
 $ python AI_Final_team8_Colpali.py --json_folder regulations_json --rebuild
 # Then,
 $ python AI_Final_team8_Colpali.py --json_folder regulations_json --image "./img"
+# or
+$ python AI_Final_Team8_Colpali.py --text "your ad text"
 ```

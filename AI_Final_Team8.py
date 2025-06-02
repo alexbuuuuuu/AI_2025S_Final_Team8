@@ -14,7 +14,9 @@ from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 import pandas as pd
 # ----------------------------
-# Code by D13944024, 蔡宜淀, Team 8
+# AI_2025S_Team 8
+# System Main Code by D13944024, 蔡宜淀
+# Modifying by D13949002, 邱翊
 
 # 配置 OpenAI API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")

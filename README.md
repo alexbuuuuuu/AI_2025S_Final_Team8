@@ -2,6 +2,7 @@
 NTU 2025 Spring AI Final Project
 
 ## Member
+```sh
 # 蔡宜淀, D13944024
 # 邱翊, D13949002
 # 高宇颺, R13922125
@@ -9,6 +10,7 @@ NTU 2025 Spring AI Final Project
 # 劉昱彬, R13922138
 # Aquib Raza, D13949005
 # 施辰穎, D13949006
+```
 
 ## Usage
 ```sh

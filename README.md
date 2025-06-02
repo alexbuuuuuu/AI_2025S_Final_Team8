@@ -17,7 +17,7 @@ $ python AI_Final_Team8.py --input_query_file final_project_query.csv
 ```sh
 # First Use
 # Put RAG json File in default ./legal_data folder
-$ python AI_Final_team8_Colpali.py  --rebuild
+$ python AI_Final_team8_Colpali.py --rebuild
 # Then,
 $ python AI_Final_team8_Colpali.py --image "./img"
 # or

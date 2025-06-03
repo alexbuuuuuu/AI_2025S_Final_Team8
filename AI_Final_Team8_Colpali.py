@@ -192,12 +192,12 @@ class ColPaliImageProcessor:
             raise ValueError(f"圖片處理失敗: {e}")
     
     def _analyze_with_colpali(self, image: Image.Image, queries: List[str] = None) -> Dict:
-        """使用 ColPali 分析圖片"""
+        """使用 ColPali 分析圖片（增強版）"""
         try:
             if queries is None:
                 queries = [
                     "這是什麼類型的廣告？",
-                    "圖片中有什麼產品信息？",
+                    "圖片中有什麼產品信息？", 
                     "有什麼健康或美容聲明？",
                     "圖片的主要內容是什麼？",
                     "這個廣告在宣傳什麼功效？"
@@ -249,16 +249,28 @@ class ColPaliImageProcessor:
             
             print(f"📊 ColPali 分析完成，最高相似度分數: {best_score:.4f}")
             
-            return {
+            # 增強的結果分析
+            result = {
                 "confidence": best_score,
                 "document_type": "advertisement",
                 "has_text": True,
-                "scores": scores
+                "scores": scores,
+                "analysis_quality": "high" if best_score > 0.8 else "medium" if best_score > 0.5 else "low"
             }
+            
+            return result
             
         except Exception as e:
             print(f"⚠️  ColPali 分析失敗: {e}")
-            return {"confidence": 0.5, "document_type": "unknown", "has_text": True}
+            # 返回安全的默認值
+            return {
+                "confidence": 0.5, 
+                "document_type": "unknown", 
+                "has_text": True,
+                "analysis_quality": "failed",
+                "error": str(e)
+            }
+
     
     def _preprocess_image(self, image_path: str) -> str:
         """圖片預處理以改善 OCR 效果"""
@@ -309,88 +321,359 @@ class ColPaliImageProcessor:
 
     
     def _extract_with_ocr(self, image_path: str, image: Image.Image = None) -> str:
-        """使用 OCR 提取文字（改善版）"""
+        """使用 OCR 提取文字（增強穩定版）"""
         if not self.ocr_engine:
             raise ValueError("沒有可用的 OCR 引擎")
         
+        processed_path = None
         try:
             # 圖片預處理
             processed_path = self._preprocess_image(image_path)
+            print(f"🔄 使用 {self.ocr_type} 進行文字提取...")
             
             if self.ocr_type == "EasyOCR":
-                # 使用更好的參數設定
-                results = self.ocr_engine.readtext(
-                    processed_path,
-                    detail=1,  # 返回詳細信息
-                    paragraph=False,  # 不合併段落
-                    width_ths=0.7,  # 文字寬度閾值
-                    height_ths=0.7,  # 文字高度閾值
-                    text_threshold=0.7,  # 文字檢測閾值
-                    link_threshold=0.4,  # 文字連接閾值
-                    low_text=0.4  # 低文字分數閾值
-                )
-                
-                # 過濾低信心度的結果
-                filtered_results = [item for item in results if item[2] > 0.5]
-                text_parts = [item[1] for item in filtered_results]
-                final_text = '\n'.join(text_parts)
+                final_text = self._extract_with_easyocr_safe(processed_path)
                 
             elif self.ocr_type == "PaddleOCR":
-                result = self.ocr_engine.ocr(processed_path, cls=True)
-                if result[0] is None:
-                    return "未檢測到文字"
-                
-                # 過濾低信心度的結果
-                filtered_results = [line for line in result[0] if line[1][1] > 0.5]
-                text_parts = [line[1][0] for line in filtered_results]
-                final_text = '\n'.join(text_parts)
+                final_text = self._extract_with_paddleocr_safe(processed_path)
                 
             elif self.ocr_type == "Tesseract":
-                from PIL import Image
-                img = Image.open(processed_path)
-                final_text = pytesseract.image_to_string(
-                    img, 
-                    lang='chi_tra+eng',
-                    config='--psm 6'  # 統一文字塊模式
-                )
+                final_text = self._extract_with_tesseract_safe(processed_path)
+            else:
+                raise ValueError(f"不支援的 OCR 類型: {self.ocr_type}")
             
-            # 清理臨時檔案
-            if processed_path != image_path and os.path.exists(processed_path):
-                os.remove(processed_path)
+            # 驗證提取結果
+            if not final_text or len(final_text.strip()) < 2:
+                print(f"⚠️  {self.ocr_type} 提取結果為空或過短，嘗試降低閾值...")
+                final_text = self._extract_with_lower_threshold(processed_path)
             
-            return final_text.strip()
+            return final_text.strip() if final_text else ""
             
         except Exception as e:
             print(f"❌ {self.ocr_type} 文字提取失敗: {e}")
-            raise
+            # 嘗試備用提取方法
+            try:
+                backup_text = self._backup_ocr_extraction(image_path)
+                if backup_text:
+                    print("✅ 備用方法提取成功")
+                    return backup_text
+            except Exception as backup_e:
+                print(f"❌ 備用方法也失敗: {backup_e}")
+            
+            raise ValueError(f"OCR 文字提取完全失敗: {e}")
+            
+        finally:
+            # 安全清理臨時檔案
+            if processed_path and processed_path != image_path and os.path.exists(processed_path):
+                try:
+                    os.remove(processed_path)
+                except Exception as cleanup_e:
+                    print(f"⚠️  清理臨時檔案失敗: {cleanup_e}")
+
+    def _extract_with_easyocr_safe(self, processed_path: str) -> str:
+        """安全的 EasyOCR 提取"""
+        try:
+            results = self.ocr_engine.readtext(
+                processed_path,
+                detail=1,
+                paragraph=False,
+                width_ths=0.7,
+                height_ths=0.7, 
+                text_threshold=0.6,  # 稍微降低閾值
+                link_threshold=0.4,
+                low_text=0.3  # 降低低文字分數閾值
+            )
+            
+            # 過濾並排序結果
+            filtered_results = []
+            for item in results:
+                if len(item) >= 3 and item[2] > 0.4:  # 降低信心度要求
+                    text = str(item[1]).strip()
+                    if len(text) > 0:
+                        filtered_results.append((item[0], text, item[2]))
+            
+            if not filtered_results:
+                return ""
+            
+            # 按Y座標排序（從上到下）
+            try:
+                filtered_results.sort(key=lambda x: x[0][0][1])  # 按第一個點的Y座標排序
+            except:
+                pass  # 如果排序失敗，保持原順序
+            
+            text_parts = [item[1] for item in filtered_results]
+            return '\n'.join(text_parts)
+            
+        except Exception as e:
+            print(f"❌ EasyOCR 安全提取失敗: {e}")
+            return ""
+
+    def _extract_with_paddleocr_safe(self, processed_path: str) -> str:
+        """安全的 PaddleOCR 提取"""
+        try:
+            result = self.ocr_engine.ocr(processed_path, cls=True)
+            
+            if not result or not result[0]:
+                return ""
+            
+            # 過濾並處理結果
+            filtered_results = []
+            for line in result[0]:
+                if len(line) >= 2 and len(line[1]) >= 2:
+                    text = str(line[1][0]).strip()
+                    confidence = float(line[1][1])
+                    if confidence > 0.4 and len(text) > 0:  # 降低信心度要求
+                        filtered_results.append((line[0], text, confidence))
+            
+            if not filtered_results:
+                return ""
+            
+            # 按Y座標排序
+            try:
+                filtered_results.sort(key=lambda x: x[0][0][1])
+            except:
+                pass
+            
+            text_parts = [item[1] for item in filtered_results]
+            return '\n'.join(text_parts)
+            
+        except Exception as e:
+            print(f"❌ PaddleOCR 安全提取失敗: {e}")
+            return ""
+
+    def _extract_with_tesseract_safe(self, processed_path: str) -> str:
+        """安全的 Tesseract 提取"""
+        try:
+            import pytesseract
+            from PIL import Image
+            
+            img = Image.open(processed_path)
+            
+            # 嘗試不同的配置
+            configs = [
+                '--psm 6',  # 統一文字塊
+                '--psm 3',  # 自動頁面分割
+                '--psm 4',  # 假設單列文字
+                '--psm 1'   # 自動頁面分割與OSD
+            ]
+            
+            best_result = ""
+            max_length = 0
+            
+            for config in configs:
+                try:
+                    text = pytesseract.image_to_string(
+                        img, 
+                        lang='chi_tra+eng',
+                        config=config
+                    )
+                    if text and len(text.strip()) > max_length:
+                        best_result = text
+                        max_length = len(text.strip())
+                except:
+                    continue
+            
+            return best_result
+            
+        except Exception as e:
+            print(f"❌ Tesseract 安全提取失敗: {e}")
+            return ""
+
+    def _extract_with_lower_threshold(self, processed_path: str) -> str:
+        """使用更低閾值重新提取"""
+        try:
+            if self.ocr_type == "EasyOCR":
+                results = self.ocr_engine.readtext(
+                    processed_path,
+                    detail=1,
+                    paragraph=False,
+                    width_ths=0.5,  # 降低閾值
+                    height_ths=0.5,
+                    text_threshold=0.3,
+                    link_threshold=0.2,
+                    low_text=0.2
+                )
+                
+                text_parts = []
+                for item in results:
+                    if len(item) >= 3 and item[2] > 0.2:  # 很低的信心度
+                        text = str(item[1]).strip()
+                        if len(text) > 0:
+                            text_parts.append(text)
+                
+                return '\n'.join(text_parts)
+                
+            elif self.ocr_type == "PaddleOCR":
+                result = self.ocr_engine.ocr(processed_path, cls=True)
+                if result and result[0]:
+                    text_parts = []
+                    for line in result[0]:
+                        if len(line) >= 2 and len(line[1]) >= 2:
+                            if line[1][1] > 0.2:  # 很低的信心度
+                                text_parts.append(str(line[1][0]))
+                    return '\n'.join(text_parts)
+            
+            return ""
+            
+        except Exception as e:
+            print(f"❌ 低閾值提取失敗: {e}")
+            return ""
+
+    def _backup_ocr_extraction(self, image_path: str) -> str:
+        """備用 OCR 提取方法"""
+        try:
+            # 嘗試使用最基本的 pytesseract
+            import pytesseract
+            from PIL import Image
+            
+            img = Image.open(image_path)
+            
+            # 簡單的圖片增強
+            from PIL import ImageEnhance
+            
+            # 增強對比度
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(2.0)
+            
+            # 增強銳度
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(2.0)
+            
+            # 基本OCR
+            text = pytesseract.image_to_string(img, lang='chi_tra+eng')
+            
+            if text and len(text.strip()) > 2:
+                return text.strip()
+            
+            # 如果還是沒有結果，嘗試純英文
+            text = pytesseract.image_to_string(img, lang='eng')
+            return text.strip() if text else ""
+            
+        except Exception as e:
+            print(f"❌ 備用提取方法失敗: {e}")
+            return ""
+
 
     
     def _enhance_text_with_colpali(self, ocr_text: str, colpali_info: Dict) -> str:
-        """結合 ColPali 理解增強 OCR 文字"""
-        # 根據 ColPali 的理解來改善 OCR 結果
-        enhanced_text = ocr_text
-        
-        # 簡單的文字清理
-        lines = enhanced_text.split('\n')
-        cleaned_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if len(line) > 1:  # 過濾太短的行
-                cleaned_lines.append(line)
-        
-        enhanced_text = "\n".join(cleaned_lines)
-        
-        # 根據 ColPali 的信心分數提供額外信息
-        confidence = colpali_info.get('confidence', 0)
-        if confidence > 0.8:
-            print(f"🎯 ColPali 高信心分數 ({confidence:.3f})，文字提取品質通過")
-        elif confidence > 0.5:
-            print(f"⚠️  ColPali 中等信心分數 ({confidence:.3f})，建議檢查文字提取結果")
-        else:
-            print(f"❌ ColPali 低信心分數 ({confidence:.3f})，文字提取可能不完整")
-        
-        return enhanced_text
+        """結合 ColPali 理解增強 OCR 文字（安全版本）"""
+        try:
+            # 安全的基礎清理
+            enhanced_text = self._safe_basic_cleaning(ocr_text)
+            
+            # 評估文字品質
+            quality_assessment = self._assess_text_quality_safe(enhanced_text, colpali_info)
+            
+            # 根據品質評估進行溫和增強
+            if quality_assessment['needs_enhancement']:
+                enhanced_text = self._gentle_enhancement(enhanced_text, quality_assessment)
+            
+            # 顯示處理結果
+            confidence = colpali_info.get('confidence', 0)
+            if confidence > 0.8:
+                print(f"🎯 ColPali 高信心分數 ({confidence:.3f})，文字提取內容合乎預期")
+            elif confidence > 0.5:
+                print(f"⚠️  ColPali 中等信心分數 ({confidence:.3f})，文字提取內容可能有誤")
+            else:
+                print(f"❌ ColPali 低信心分數 ({confidence:.3f})，建議人工檢查")
+            
+            return enhanced_text
+            
+        except Exception as e:
+            print(f"⚠️  文字增強過程出現問題: {e}")
+            return self._safe_basic_cleaning(ocr_text)  # 降級到基礎清理
+
+    def _safe_basic_cleaning(self, text: str) -> str:
+        """安全的基礎文字清理"""
+        try:
+            if not text or not isinstance(text, str):
+                return ""
+            
+            # 基本清理步驟
+            lines = text.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                # 過濾明顯的雜訊行
+                if len(line) > 1 and not line.isspace():
+                    # 移除過多的空白字符
+                    line = ' '.join(line.split())
+                    cleaned_lines.append(line)
+            
+            result = "\n".join(cleaned_lines)
+            return result if result else text  # 如果清理後為空，返回原文
+            
+        except Exception as e:
+            print(f"⚠️  基礎清理失敗: {e}")
+            return text  # 清理失敗時返回原文
+
+    def _assess_text_quality_safe(self, text: str, colpali_info: Dict) -> Dict:
+        """安全評估文字品質"""
+        try:
+            assessment = {
+                'length': len(text),
+                'line_count': len(text.split('\n')),
+                'has_chinese': bool(re.search(r'[\u4e00-\u9fff]', text)),
+                'has_english': bool(re.search(r'[a-zA-Z]', text)),
+                'confidence_score': colpali_info.get('confidence', 0),
+                'needs_enhancement': False,
+                'quality_issues': []
+            }
+            
+            # 檢查是否需要增強
+            if assessment['length'] < 10:
+                assessment['quality_issues'].append('文字過短')
+                assessment['needs_enhancement'] = True
+            
+            if assessment['confidence_score'] < 0.6:
+                assessment['quality_issues'].append('ColPali信心度偏低')
+                assessment['needs_enhancement'] = True
+            
+            # 檢查是否有明顯的OCR錯誤模式
+            common_ocr_errors = ['|', '||', '___', '...', '???']
+            if any(error in text for error in common_ocr_errors):
+                assessment['quality_issues'].append('包含OCR錯誤符號')
+                assessment['needs_enhancement'] = True
+            
+            return assessment
+            
+        except Exception as e:
+            print(f"⚠️  品質評估失敗: {e}")
+            return {
+                'needs_enhancement': False,
+                'quality_issues': ['評估失敗'],
+                'confidence_score': 0.5
+            }
+
+    def _gentle_enhancement(self, text: str, quality_assessment: Dict) -> str:
+        """溫和的文字增強處理"""
+        try:
+            enhanced = text
+            
+            # 處理常見的OCR錯誤
+            ocr_corrections = {
+                '|': '',  # 移除多餘的豎線
+                '||': '',  # 移除雙豎線
+                '___': '',  # 移除底線
+                '...': '',  # 移除省略號
+                '???': '',  # 移除問號
+            }
+            
+            for error, correction in ocr_corrections.items():
+                if error in enhanced:
+                    enhanced = enhanced.replace(error, correction)
+            
+            # 清理多餘空白
+            enhanced = re.sub(r'\s+', ' ', enhanced)
+            enhanced = re.sub(r'\n\s*\n', '\n', enhanced)
+            
+            return enhanced.strip()
+            
+        except Exception as e:
+            print(f"⚠️  溫和增強失敗: {e}")
+            return text  # 增強失敗時返回原文
+
     
     def _fallback_text_extraction(self, image_path: str) -> str:
         """備用文字提取方法"""
@@ -514,6 +797,108 @@ def test_colpali_with_sample():
     except Exception as e:
         print(f"❌ 測試失敗: {e}")
         return False
+
+def _extract_with_multiple_ocr_safe(self, image_path: str, image: Image.Image = None) -> str:
+    """使用多個 OCR 引擎並選擇最佳結果（安全版本）"""
+    results = []
+    
+    try:
+        # 1. 預處理圖片
+        processed_path = self._preprocess_image(image_path)
+        
+        # 2. 嘗試不同的 OCR 引擎
+        
+        # EasyOCR
+        if self._try_easyocr_safe(processed_path, results):
+            print("✅ EasyOCR 處理成功")
+        
+        # PaddleOCR  
+        if self._try_paddleocr_safe(processed_path, results):
+            print("✅ PaddleOCR 處理成功")
+        
+        # Tesseract
+        if self._try_tesseract_safe(processed_path, results):
+            print("✅ Tesseract 處理成功")
+        
+        # 清理臨時檔案
+        if processed_path != image_path and os.path.exists(processed_path):
+            try:
+                os.remove(processed_path)
+            except:
+                pass  # 忽略清理錯誤
+        
+        # 3. 選擇最佳結果
+        if results:
+            best_result = self._select_best_ocr_result(results)
+            print(f"✅ 選擇 {best_result[0]} 的結果 ({best_result[2]} 字元)")
+            return best_result[1]
+        else:
+            return "無法提取文字內容"
+            
+    except Exception as e:
+        print(f"❌ 多OCR處理失敗: {e}")
+        return ""
+
+def _try_easyocr_safe(self, processed_path: str, results: List) -> bool:
+    """安全嘗試 EasyOCR"""
+    try:
+        import easyocr
+        reader = easyocr.Reader(['ch_tra', 'en'], gpu=False, verbose=False)
+        result = reader.readtext(processed_path)
+        text = '\n'.join([item[1] for item in result if item[2] > 0.3])
+        if text.strip():
+            results.append(('EasyOCR', text, len(text)))
+            return True
+    except Exception as e:
+        print(f"⚠️  EasyOCR 失敗: {e}")
+    return False
+
+def _try_paddleocr_safe(self, processed_path: str, results: List) -> bool:
+    """安全嘗試 PaddleOCR"""
+    try:
+        from paddleocr import PaddleOCR
+        paddle_ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
+        result = paddle_ocr.ocr(processed_path, cls=True)
+        if result[0]:
+            text = '\n'.join([line[1][0] for line in result[0] if line[1][1] > 0.3])
+            if text.strip():
+                results.append(('PaddleOCR', text, len(text)))
+                return True
+    except Exception as e:
+        print(f"⚠️  PaddleOCR 失敗: {e}")
+    return False
+
+def _try_tesseract_safe(self, processed_path: str, results: List) -> bool:
+    """安全嘗試 Tesseract"""
+    try:
+        import pytesseract
+        from PIL import Image
+        img = Image.open(processed_path)
+        text = pytesseract.image_to_string(img, lang='chi_tra+eng')
+        if text.strip():
+            results.append(('Tesseract', text, len(text.strip())))
+            return True
+    except Exception as e:
+        print(f"⚠️  Tesseract 失敗: {e}")
+    return False
+
+def _select_best_ocr_result(self, results: List) -> tuple:
+    """選擇最佳 OCR 結果"""
+    if not results:
+        return ("None", "", 0)
+    
+    # 優先選擇有意義內容最多的結果
+    scored_results = []
+    for engine, text, length in results:
+        # 計算中文字符數量（通常更重要）
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+        # 計算總分數：中文字符權重更高
+        score = chinese_chars * 2 + length
+        scored_results.append((engine, text, length, score))
+    
+    # 按分數排序，選擇最高分
+    best = max(scored_results, key=lambda x: x[3])
+    return (best[0], best[1], best[2])
 
 # ========= 2. 通用工具函數 =========
 def _extract_with_multiple_ocr(self, image_path: str, image: Image.Image = None) -> str:
